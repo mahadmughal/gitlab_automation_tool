@@ -132,24 +132,25 @@ class GitLabPipelineAutomator:
             return None
           
     def fetch_ticket_description_from_script(self, script_content):
-      try:
-          print("🔍 Extracting ticket description from script content...")
-          
-          # Pattern to match: task TASK_NAME: :environment do
-          pattern = r'task\s+([a-zA-Z0-9_]+)\s*:\s*:environment\s+do'
-          
-          match = re.search(pattern, script_content)
-          if match:
-              task_name = match.group(1)
-              print(f"✓ Extracted ticket description: '{task_name}'")
-              return task_name
-          else:
-              print("✗ No task name found in script content")
-              return None
-              
-      except Exception as e:
-          print(f"✗ Error extracting ticket description: {e}")
-          return None
+        """Fetch ticket description from Ruby script content"""
+        try:
+            print("🔍 Extracting ticket description from script content...")
+            
+            # Pattern to match: task TASK_NAME: :environment do
+            pattern = r'task\s+([a-zA-Z0-9_]+)\s*:\s*:environment\s+do'
+            
+            match = re.search(pattern, script_content)
+            if match:
+                task_name = match.group(1)
+                print(f"✓ Extracted ticket description: '{task_name}'")
+                return task_name
+            else:
+                print("✗ No task name found in script content")
+                return None
+                
+        except Exception as e:
+            print(f"✗ Error extracting ticket description: {e}")
+            return None
     
     def process_ci_variables(self, ticket_description, script, ejar_service):
         """Process CI variable containers with provided parameters"""
@@ -226,7 +227,7 @@ class GitLabPipelineAutomator:
             textarea = third_container.find_element(By.CSS_SELECTOR, '[data-testid="pipeline-form-ci-variable-value-field"]')
             textarea.clear()
             textarea.send_keys(script)
-            # print(f"✓ Set script: '{script}'")
+            print(f"✓ Set script content (length: {len(script)} characters)")
             
             # Scroll down to make the button fully visible
             self.driver.execute_script("window.scrollTo(0, document.body.scrollHeight - 500);")
@@ -246,15 +247,12 @@ class GitLabPipelineAutomator:
         except Exception as e:
             print(f"Error processing CI variables: {e}")
             return False
-          
-    
-    def approve_pipeline(self):
-        """Approve the pipeline"""
+
+    def wait_for_pipeline_page(self):
+        """Wait for the pipeline page to load after running pipeline"""
         try:
-            print("Approving the pipeline...")
             print("Waiting for pipeline page to load...")
             
-            # Wait for the browser to navigate to the new pipeline page
             def pipeline_page_loaded(driver):
                 current_url = driver.current_url
                 print(f"Current URL: {current_url}")
@@ -265,10 +263,25 @@ class GitLabPipelineAutomator:
                 self.wait = WebDriverWait(self.driver, 30)
                 self.wait.until(pipeline_page_loaded)
                 print("✓ Pipeline page loaded successfully")
+                return True
             except Exception as e:
                 print(f"⚠️ Timeout waiting for pipeline page, continuing anyway: {e}")
-            # Continue execution even if URL check fails
+                return True  # Continue execution even if URL check fails
+                
+        except Exception as e:
+            print(f"Error waiting for pipeline page: {e}")
+            return False
+
+    def request_pipeline(self):
+        """First step: Wait for and monitor the request stage"""
+        try:
+            print("=" * 50)
+            print("STEP 1: Processing Pipeline Request Stage")
+            print("=" * 50)
             
+            print("Looking for request_prod badge...")
+            
+            # Find the request badge
             try:
                 ci_badge_request_prod_div = WebDriverWait(self.driver, 20).until(
                     EC.presence_of_element_located((By.ID, 'ci-badge-request_prod'))
@@ -276,49 +289,68 @@ class GitLabPipelineAutomator:
                 print("✓ Found request_prod badge")
             except Exception as e:
                 print(f"✗ Could not find request_prod badge: {e}")
-                # Try alternative selectors
                 print("Trying alternative selectors...")
                 try:
-                    # Look for any ci-badge element
                     ci_badge_request_prod_div = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, '[id*="ci-badge-request"]'))
                     )
                     print("✓ Found alternative request badge")
                 except Exception as e:
-                    print(f"✗ No request badge found, pipeline might have different structure: {e}")
+                    print(f"✗ No request badge found: {e}")
                     return False
-                  
-            # Wait for the ci-icon to show success
-            while True:
+            
+            # Monitor request stage until completion
+            print("Monitoring request stage completion...")
+            max_attempts = 20  # Maximum attempts to avoid infinite loop
+            attempt = 0
+            
+            while attempt < max_attempts:
                 try:
+                    # Find the request badge again (in case page refreshed)
                     ci_badge_request_prod_div = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, '[id*="ci-badge-request"]'))
                     )
+                    
+                    # Check the ci-icon status
                     ci_icon = ci_badge_request_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
-                    print(f"ci-icon HTML element: {ci_icon.get_attribute('outerHTML')}")
-                    print(f"ci-icon class: {ci_icon.get_attribute('class')}")
+                    icon_class = ci_icon.get_attribute('class')
                     
-                    if 'ci-icon-variant-success' in ci_icon.get_attribute('class'):
-                        print("✓ ci-icon show success, breaking loop")
-                        break
+                    print(f"Attempt {attempt + 1}: Request stage status - {icon_class}")
                     
-                    time.sleep(3)
-                    
-                except:
-                    print("ci-icon does not show success, waiting 3 seconds and trying again...")
-                    
-                print("Refreshing page...")  
-                self.driver.refresh()
-                    
-                time.sleep(3)
-            
-            print("✓ Request step completed successfully")
+                    if 'ci-icon-variant-success' in icon_class:
+                        print("✓ Request stage completed successfully!")
+                        return True
+                    elif 'ci-icon-variant-failed' in icon_class or 'ci-icon-variant-error' in icon_class:
+                        print("✗ Request stage failed!")
+                        return False
+                    else:
+                        print("⏳ Request stage still in progress...")
+                        
+                except Exception as e:
+                    print(f"⚠️ Error checking request stage status: {e}")
+                    print("Refreshing page and retrying...")
+                    self.driver.refresh()
                 
-            time.sleep(2)
+                attempt += 1
+                time.sleep(5)  # Wait 5 seconds before next check
+            
+            print("⚠️ Request stage monitoring timed out")
+            return False
+            
+        except Exception as e:
+            print(f"Error in request pipeline stage: {e}")
+            return False
+
+    def approve_pipeline_stage(self):
+        """Second step: Handle the approval stage"""
+        try:
+            print("=" * 50)
+            print("STEP 2: Processing Pipeline Approval Stage")
+            print("=" * 50)
             
             print("Looking for approve_prod badge...")
             
-            # Wait for the approve_prod element to be present
+            # Wait for the approve badge to appear
             try:
                 ci_badge_approve_prod_div = WebDriverWait(self.driver, 20).until(
                     EC.presence_of_element_located((By.ID, 'ci-badge-approve_prod'))
@@ -326,39 +358,162 @@ class GitLabPipelineAutomator:
                 print("✓ Found approve_prod badge")
             except Exception as e:
                 print(f"✗ Could not find approve_prod badge: {e}")
-                # Try alternative selectors
+                print("Trying alternative selectors...")
                 try:
                     ci_badge_approve_prod_div = WebDriverWait(self.driver, 10).until(
                         EC.presence_of_element_located((By.CSS_SELECTOR, '[id*="ci-badge-approve"]'))
                     )
                     print("✓ Found alternative approve badge")
                 except Exception as e:
-                    print(f"✗ No approve badge found, pipeline might have different structure: {e}")
+                    print(f"✗ No approve badge found: {e}")
                     return False
             
-            time.sleep(2)
+            time.sleep(2)  # Small delay for UI stability
             
             # Find and click the approve button
             try:
+                print("Looking for approve button...")
                 approve_button = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-action-button"]')
+                
+                # Ensure button is visible and clickable
+                self.driver.execute_script("arguments[0].scrollIntoView(true);", approve_button)
+                time.sleep(1)
+                
+                # Check if button is enabled
+                if not approve_button.is_enabled():
+                    print("⚠️ Approve button is not enabled yet, waiting...")
+                    time.sleep(5)
                 
                 # Click the approve button
                 approve_button.click()
-                print("✓ Clicked approve button")
+                print("✓ Successfully clicked approve button")
+                
+                # Wait a moment for the approval to process
+                time.sleep(3)
+                
+                # Optionally verify approval was successful
+                try:
+                    ci_icon = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
+                    icon_class = ci_icon.get_attribute('class')
+                    
+                    if 'ci-icon-variant-success' in icon_class:
+                        print("✓ Pipeline approval completed successfully!")
+                    elif 'ci-icon-variant-pending' in icon_class or 'ci-icon-variant-running' in icon_class:
+                        print("⏳ Pipeline approval is processing...")
+                    else:
+                        print(f"? Approval status: {icon_class}")
+                        
+                except Exception as e:
+                    print(f"⚠️ Could not verify approval status: {e}")
                 
                 return True
                 
             except Exception as e:
                 print(f"✗ Could not click approve button: {e}")
+                
+                # Try alternative approach - look for any clickable approve elements
+                try:
+                    print("Trying alternative approve button search...")
+                    approve_buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button[title*="approve"], button[title*="Approve"]')
+                    
+                    for button in approve_buttons:
+                        if button.is_displayed() and button.is_enabled():
+                            button.click()
+                            print("✓ Clicked alternative approve button")
+                            return True
+                            
+                    print("✗ No alternative approve buttons found")
+                    
+                except Exception as e2:
+                    print(f"✗ Alternative approve approach failed: {e2}")
+                
                 return False
+                
+        except Exception as e:
+            print(f"Error in approve pipeline stage: {e}")
+            return False
+
+    def check_pipeline_status(self):
+        """Check the overall status of the pipeline"""
+        try:
+            print("Checking overall pipeline status...")
+            
+            # Look for all pipeline stage badges
+            stage_badges = self.driver.find_elements(By.CSS_SELECTOR, '[id*="ci-badge-"]')
+            
+            pipeline_status = {}
+            
+            for badge in stage_badges:
+                try:
+                    badge_id = badge.get_attribute('id')
+                    ci_icon = badge.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
+                    icon_class = ci_icon.get_attribute('class')
+                    
+                    if 'success' in icon_class:
+                        status = "✅ Success"
+                    elif 'failed' in icon_class or 'error' in icon_class:
+                        status = "❌ Failed"
+                    elif 'pending' in icon_class or 'running' in icon_class:
+                        status = "⏳ Running"
+                    else:
+                        status = f"? Unknown ({icon_class})"
+                    
+                    pipeline_status[badge_id] = status
+                    
+                except Exception as e:
+                    pipeline_status[badge_id] = f"❓ Error reading status"
+            
+            print("Pipeline Status Summary:")
+            print("-" * 40)
+            for stage, status in pipeline_status.items():
+                print(f"{stage}: {status}")
+            print("-" * 40)
+            
+            return pipeline_status
             
         except Exception as e:
-            print(f"Error approving the pipeline: {e}")
+            print(f"Error checking pipeline status: {e}")
+            return {}
+
+    def execute_pipeline(self):
+        """Main pipeline approval orchestrator"""
+        try:
+            print("🚀 Starting Pipeline Approval Process")
+            print("=" * 60)
+            
+            # Step 1: Wait for pipeline page to load
+            if not self.wait_for_pipeline_page():
+                print("❌ Failed to load pipeline page")
+                return False
+            
+            # Step 2: Process request stage
+            if not self.request_pipeline():
+                print("❌ Failed at request pipeline stage")
+                return False
+            
+            # Step 3: Process approval stage
+            if not self.approve_pipeline_stage():
+                print("❌ Failed at approval pipeline stage")
+                return False
+            
+            print("=" * 60)
+            print("✅ Pipeline approval process completed successfully!")
+            return True
+            
+        except Exception as e:
+            print(f"💥 Error in pipeline approval orchestrator: {e}")
+            
+            # Print debug information
+            try:
+                print(f"Current URL: {self.driver.current_url}")
+                print(f"Page title: {self.driver.title}")
+            except:
+                pass
+                
             return False
-          
-    
+
     def run_automation(self, branch_name="production", ticket_description="", script="", ejar_service=""):
-        """Main automation function"""
+        """Main automation function with refactored approval process"""
         try:
             # Validate required parameters
             if not ticket_description or not script or not ejar_service:
@@ -380,20 +535,25 @@ class GitLabPipelineAutomator:
                 return False
               
             # Read the script
-            script = self.read_script(script)
-            if not script:
+            script_content = self.read_script(script)
+            if not script_content:
                 print("Error reading script")
                 return False
               
             # Process CI variables with provided parameters
-            if not self.process_ci_variables(ticket_description, script, ejar_service):
+            if not self.process_ci_variables(ticket_description, script_content, ejar_service):
                 return False
               
-            # Approve the pipeline
-            if not self.approve_pipeline():
+            # Use the refactored approval process
+            if not self.execute_pipeline():
+                print("Checking final pipeline status...")
+                self.check_pipeline_status()
                 return False
             
-            print("Successfully completed automation")
+            # Final status check
+            final_status = self.check_pipeline_status()
+            
+            print("🎉 Successfully completed automation with refactored approval process!")
             return True
             
         except Exception as e:
@@ -414,9 +574,9 @@ def parse_arguments():
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
-  python script.py -t "TASK-123: Fix payment bug" -s "pp User.find(1).update(status: 'active')" -e "ejar3-core-app"
-  python script.py --ticket "NEOP-456: Update service" --script "pp reload!" --ejar-service "ejar3-frontend"
-  python script.py -t "Bug fix" -s "pp script_name" -e "ejar3-sidekiq" -b "development"
+  python script.py -t "ES-3456" -s "check_user_eligibility" -e "ejar3-sec"
+  python script.py -t "TASK-123" -s "update_contract_status" -e "ejar3-core-app"
+  python script.py -t "Bug fix" -s "script_name" -e "ejar3-sidekiq" -b "development"
 
 Available Ejar Services:
   - ejar3-frontend
@@ -429,25 +589,26 @@ Available Ejar Services:
   - ejar3-contract
   - ejar3-search-service
   - ejar3-security-deposit
+  - ejar3-sec (special: extracts task name from script)
         """
     )
     
     parser.add_argument(
         '-t', '--ticket',
         required=True,
-        help='Ticket description (e.g., "ES-3456")'
+        help='Ticket description (e.g., "ES-3456") - will be auto-updated for sec services'
     )
     
     parser.add_argument(
         '-s', '--script', 
         required=True,
-        help='Ruby script to execute (e.g., "pp User.count")'
+        help='Ruby script filename without .rb extension (e.g., "check_user_eligibility")'
     )
     
     parser.add_argument(
         '-e', '--ejar-service',
         required=True,
-        help='Ejar3 service name (e.g., "ejar3-core-app")'
+        help='Ejar3 service name (e.g., "ejar3-core-app", "ejar3-sec")'
     )
     
     parser.add_argument(
@@ -474,6 +635,11 @@ if __name__ == "__main__":
     print(f"Script: {args.script}")
     print(f"Ejar Service: {args.ejar_service}")
     print(f"Branch: {args.branch}")
+    
+    # Special note for sec services
+    if "sec" in args.ejar_service.lower():
+        print("🔍 SEC service detected - will extract task name from script!")
+    
     print("=" * 60)
     
     automator = GitLabPipelineAutomator()
