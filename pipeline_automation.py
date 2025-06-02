@@ -109,9 +109,20 @@ class GitLabPipelineAutomator:
             # Find the ul inside the parent div
             ul_element = base_dropdown_div.find_element(By.TAG_NAME, 'ul')
 
-            # # Select the fourth li element in order (index 5 for production)
-            fourth_li_element = ul_element.find_elements(By.TAG_NAME, 'li')[5]
-            fourth_li_element.click()
+            # Select the li element in order based on branch_name
+            if branch_name.lower() == "development":
+                index = 4
+            elif branch_name.lower() == "production":
+                index = 5
+            elif branch_name.lower() == "test":
+                index = 6
+            elif branch_name.lower() == "uat":
+                index = 7
+            else:
+                raise ValueError(f"Invalid branch name: {branch_name}")
+
+            selected_li_element = ul_element.find_elements(By.TAG_NAME, 'li')[index]
+            selected_li_element.click()
             time.sleep(2)
 
             print(f"Successfully selected branch: {branch_name}")
