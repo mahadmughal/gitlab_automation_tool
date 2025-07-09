@@ -14,6 +14,7 @@ class GitLabPipelineAutomator:
     def __init__(self):
         self.driver = None
         self.wait = None
+        self.pipeline_id = None
 
     def connect_to_existing_firefox(self):
         """Connect to Firefox - will reuse existing profile but may open new window"""
@@ -49,6 +50,28 @@ class GitLabPipelineAutomator:
             print(f"Could not connect to existing Chrome: {e}")
             print("Please start Chrome with: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222")
             return False
+          
+    def reload_page(self):
+        try:
+            self.driver.refresh()
+            # Wait for page to be fully loaded before printing success
+            WebDriverWait(self.driver, 10).until(
+                EC.presence_of_element_located((By.TAG_NAME, "body"))
+            )
+            print("✅ Page reloaded successfully")
+        except Exception as e:
+            print(f"❌ Error while safe reload: {e}")
+            # Fallback method
+            try:
+                self.driver.get(self.driver.current_url)
+                # Wait for fallback reload to complete
+                WebDriverWait(self.driver, 10).until(
+                    EC.presence_of_element_located((By.TAG_NAME, "body"))
+                )
+                print("✅ Used fallback reload method")
+            except Exception as fallback_error:
+                print(f"❌ Fallback reload also failed: {fallback_error}")
+                return False
 
     def navigate_to_gitlab_pipeline(self):
         """Navigate to the GitLab pipeline page"""
@@ -78,7 +101,7 @@ class GitLabPipelineAutomator:
         try:
 
             self.driver.get('https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new')
-            self.driver.refresh()
+            self.reload_page()
             # Wait for the page to fully load by checking the presence of the fieldset
             self.wait.until(
                 EC.presence_of_element_located((By.TAG_NAME, 'fieldset'))
@@ -335,12 +358,14 @@ class GitLabPipelineAutomator:
                         print("✗ Request stage failed!")
                         return False
                     else:
-                        print("⏳ Request stage still in progress...")
+                        print("⏳ Request stage still in progress so try reload page...")
+                        self.reload_page()
+                        
 
                 except Exception as e:
                     print(f"⚠️ Error checking request stage status: {e}")
                     print("Refreshing page and retrying...")
-                    self.driver.refresh()
+                    self.reload_page()
 
                 attempt += 1
                 time.sleep(5)  # Wait 5 seconds before next check
@@ -368,6 +393,7 @@ class GitLabPipelineAutomator:
                 )
                 print("✓ Found approve_prod badge")
             except Exception as e:
+                self.reload_page()
                 print(f"✗ Could not find approve_prod badge: {e}")
                 print("Trying alternative selectors...")
                 try:
@@ -393,7 +419,7 @@ class GitLabPipelineAutomator:
                 # Check if button is enabled
                 if not approve_button.is_enabled():
                     print("⚠️ Approve button is not enabled yet, waiting...")
-                    time.sleep(5)
+                    self.reload_page()
 
                 # Click the approve button
                 approve_button.click()
@@ -411,6 +437,7 @@ class GitLabPipelineAutomator:
                         print("✓ Pipeline approval completed successfully!")
                     elif 'ci-icon-variant-pending' in icon_class or 'ci-icon-variant-running' in icon_class:
                         print("⏳ Pipeline approval is processing...")
+                        self.reload_page()
                     else:
                         print(f"? Approval status: {icon_class}")
 
@@ -443,6 +470,74 @@ class GitLabPipelineAutomator:
         except Exception as e:
             print(f"Error in approve pipeline stage: {e}")
             return False
+          
+    def run_pipeline_stage(self):
+        try:
+              print("Looking for run pipeline badge...")
+              ci_badge_runscript_prod_div = WebDriverWait(self.driver, 10).until(
+                  EC.presence_of_element_located((By.ID, 'ci-badge-runscript_prod'))
+              )
+              print("✓ Found run pipeline badge")
+
+              # Click the badge to redirect to pipeline execution page
+              ci_badge_runscript_prod_div.click()
+              print("✓ Redirected to pipeline execution page")
+
+        except Exception as e:
+            print(f"✗ Could not click run pipeline badge: {e}")
+            return False
+          
+        time.sleep(15)
+          
+        """Fourth step: Monitor the pipeline execution until completion"""
+        try:
+          print("=" * 50)
+          print("STEP 4: Monitoring Pipeline Execution")
+          print("=" * 50)
+
+          # Monitor pipeline execution until completion
+          print("Checking for pipeline success...")
+          max_attempts = 60  # Maximum attempts (5 minutes with 5-second intervals)
+          attempt = 0
+
+          while attempt < max_attempts:
+              try:
+                  # Find the pipeline-info div
+                  pipeline_info_div = self.driver.find_element(
+                      By.CSS_SELECTOR, 
+                      'div[data-testid="pipeline-info"]'
+                  )
+                
+                  pipeline_status_link = pipeline_info_div.find_element(
+                      By.CSS_SELECTOR,
+                      'a[data-testid="pipeline-status-link"]'
+                  )
+                  
+                  aria_label = pipeline_status_link.get_attribute('aria-label')
+                  
+                  if aria_label and "Status: Passed" in aria_label:
+                      self.pipeline_id = pipeline_info_div.find_element(By.CSS_SELECTOR, 'a[data-testid="pipeline-path"]').get_attribute('href').split('/')[-1]
+                      print("✅ Pipeline execution PASSED!")
+                      return True 
+
+              except Exception as e:
+                  # Element not found, continue monitoring
+                  print(f"✗ Could not find pipeline-status-link: {e}")
+                  pass
+
+              attempt += 1
+              
+              if attempt < max_attempts:
+                  self.reload_page()
+                  print(f"⏳ Checking... (attempt {attempt}/{max_attempts})")
+                  time.sleep(10)
+
+          print("⚠️ Pipeline monitoring timed out")
+          return False
+
+        except Exception as e:
+          print(f"💥 Error monitoring pipeline: {e}")
+          return False
 
     def check_pipeline_status(self):
         """Check the overall status of the pipeline"""
@@ -485,25 +580,6 @@ class GitLabPipelineAutomator:
         except Exception as e:
             print(f"Error checking pipeline status: {e}")
             return {}
-
-
-    def run_pipeline_stage(self):
-        try:
-            print("Looking for run pipeline badge...")
-            ci_badge_runscript_prod_div = WebDriverWait(self.driver, 10).until(
-                EC.presence_of_element_located((By.ID, 'ci-badge-runscript_prod'))
-            )
-            print("✓ Found run pipeline badge")
-
-            # Click the badge to redirect to pipeline execution page
-            ci_badge_runscript_prod_div.click()
-            print("✓ Redirected to pipeline execution page")
-
-            return True
-
-        except Exception as e:
-            print(f"✗ Could not click run pipeline badge: {e}")
-            return False
 
 
     def execute_pipeline(self):
@@ -690,6 +766,7 @@ if __name__ == "__main__":
 
         if success:
             print("\n✅ Automation completed successfully!")
+            print(f"Pipeline ID: {self.pipeline_id}")
         else:
             print("\n❌ Automation failed!")
             sys.exit(1)
