@@ -306,15 +306,9 @@ class GitLabPipelineAutomator:
             return False
 
     def request_pipeline(self):
-        """First step: Wait for and monitor the request stage"""
         try:
-            print("=" * 50)
-            print("STEP 1: Processing Pipeline Request Stage")
-            print("=" * 50)
-
             print("Looking for request_prod badge...")
 
-            # Find the request badge
             try:
                 ci_badge_request_prod_div = WebDriverWait(self.driver, 20).until(
                     EC.presence_of_element_located((By.ID, 'ci-badge-request_prod'))
@@ -334,7 +328,7 @@ class GitLabPipelineAutomator:
 
             # Monitor request stage until completion
             print("Monitoring request stage completion...")
-            max_attempts = 20  # Maximum attempts to avoid infinite loop
+            max_attempts = 10  # Maximum attempts to avoid infinite loop
             attempt = 0
 
             while attempt < max_attempts:
@@ -367,7 +361,10 @@ class GitLabPipelineAutomator:
                     self.reload_page()
 
                 attempt += 1
-                time.sleep(5)  # Wait 5 seconds before next check
+                if attempt < max_attempts:
+                  self.reload_page()
+                  print(f"⏳ Checking... (attempt {attempt}/{max_attempts})")
+                  time.sleep(5)
 
             print("⚠️ Request stage monitoring timed out")
             return False
@@ -377,94 +374,70 @@ class GitLabPipelineAutomator:
             return False
 
     def approve_pipeline_stage(self):
-        """Second step: Handle the approval stage"""
         try:
-            print("=" * 50)
-            print("STEP 2: Processing Pipeline Approval Stage")
-            print("=" * 50)
-
-            print("Looking for approve_prod badge...")
-
-            # Wait for the approve badge to appear
-            try:
-                ci_badge_approve_prod_div = WebDriverWait(self.driver, 20).until(
-                    EC.presence_of_element_located((By.ID, 'ci-badge-approve_prod'))
-                )
-                print("✓ Found approve_prod badge")
-            except Exception as e:
-                self.reload_page()
-                print(f"✗ Could not find approve_prod badge: {e}")
-                print("Trying alternative selectors...")
+            max_attempts = 20  # Maximum attempts to avoid infinite loop
+            attempt = 0
+            while attempt < max_attempts:
                 try:
-                    ci_badge_approve_prod_div = WebDriverWait(self.driver, 10).until(
-                        EC.presence_of_element_located((By.CSS_SELECTOR, '[id*="ci-badge-approve"]'))
+                    ci_badge_approve_prod_div = WebDriverWait(self.driver, 20).until(
+                        EC.presence_of_element_located((By.ID, 'ci-badge-approve_prod'))
                     )
-                    print("✓ Found alternative approve badge")
-                except Exception as e:
-                    print(f"✗ No approve badge found: {e}")
-                    return False
-
-            time.sleep(2)  # Small delay for UI stability
-
-            # Find and click the approve button
-            try:
-                print("Looking for approve button...")
-                approve_button = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-action-button"]')
-
-                # Ensure button is visible and clickable
-                self.driver.execute_script("arguments[0].scrollIntoView(true);", approve_button)
-                time.sleep(1)
-
-                # Check if button is enabled
-                if not approve_button.is_enabled():
-                    print("⚠️ Approve button is not enabled yet, waiting...")
-                    self.reload_page()
-
-                # Click the approve button
-                approve_button.click()
-                print("✓ Successfully clicked approve button")
-
-                # Wait a moment for the approval to process
-                time.sleep(3)
-
-                # Optionally verify approval was successful
-                try:
                     ci_icon = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
-                    icon_class = ci_icon.get_attribute('class')
+                    neutral_ci_icon = 'badge-neutral' in ci_icon.get_attribute('class')
 
-                    if 'ci-icon-variant-success' in icon_class:
-                        print("✓ Pipeline approval completed successfully!")
-                    elif 'ci-icon-variant-pending' in icon_class or 'ci-icon-variant-running' in icon_class:
-                        print("⏳ Pipeline approval is processing...")
-                        self.reload_page()
-                    else:
-                        print(f"? Approval status: {icon_class}")
+                    if neutral_ci_icon:
+                        approve_button = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-action-button"]')
+                        self.driver.execute_script("arguments[0].scrollIntoView(true);", approve_button)
+                        time.sleep(2)
+                        approve_button.click()
+                        time.sleep(2)
+
+                        ci_badge_approve_prod_div = self.driver.find_element(By.ID, 'ci-badge-approve_prod')
+                        ci_icon = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
+                        neutral_ci_icon = 'badge-neutral' in ci_icon.get_attribute('class')
+                        if neutral_ci_icon:
+                            print("⚠️ CI icon still has neutral class, retrying...")
+                            attempt += 1
+                            continue
+
+                        print("✓ Successfully clicked approve button")
+
+                        time.sleep(5)
+
+                        print("⏳ Approve stage in progress...")
+
+                        attempt = 0
+                        while attempt < max_attempts:
+                            ci_badge_approve_prod_div = self.driver.find_element(By.ID, 'ci-badge-approve_prod')
+                            ci_icon = ci_badge_approve_prod_div.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
+
+                            print("ci_icon: ", ci_icon.get_attribute('class'))
+
+                            success_ci_icon = 'badge-success' in ci_icon.get_attribute('class')
+
+                            print("success_ci_icon: ", success_ci_icon)
+
+                            if success_ci_icon:
+                                print("✓ Approve stage completed successfully!")
+                                return True
+                            else:
+                                print("✗ Approve stage still in progress so try reload page...")
+                                self.reload_page()
+                                print(f"⏳ Checking... (attempt {attempt}/{max_attempts})")
+                                time.sleep(5)
 
                 except Exception as e:
-                    print(f"⚠️ Could not verify approval status: {e}")
+                    pass
+                    print("✗ Could not click approve button in exception block")
 
-                return True
-
-            except Exception as e:
-                print(f"✗ Could not click approve button: {e}")
-
-                # Try alternative approach - look for any clickable approve elements
-                try:
-                    print("Trying alternative approve button search...")
-                    approve_buttons = self.driver.find_elements(By.CSS_SELECTOR, 'button[title*="approve"], button[title*="Approve"]')
-
-                    for button in approve_buttons:
-                        if button.is_displayed() and button.is_enabled():
-                            button.click()
-                            print("✓ Clicked alternative approve button")
-                            return True
-
-                    print("✗ No alternative approve buttons found")
-
-                except Exception as e2:
-                    print(f"✗ Alternative approve approach failed: {e2}")
-
-                return False
+                attempt += 1
+                if attempt < max_attempts:
+                  self.reload_page()
+                  print(f"⏳ Checking... (attempt {attempt}/{max_attempts})")
+                  time.sleep(5)
+                else:
+                  print("✗ Could not click approve button")
+                  return False
 
         except Exception as e:
             print(f"Error in approve pipeline stage: {e}")
@@ -478,7 +451,6 @@ class GitLabPipelineAutomator:
               )
               print("✓ Found run pipeline badge")
 
-              # Click the badge to redirect to pipeline execution page
               ci_badge_runscript_prod_div.click()
               print("✓ Redirected to pipeline execution page")
 
@@ -488,20 +460,13 @@ class GitLabPipelineAutomator:
 
         time.sleep(15)
 
-        """Fourth step: Monitor the pipeline execution until completion"""
         try:
-          print("=" * 50)
-          print("STEP 4: Monitoring Pipeline Execution")
-          print("=" * 50)
-
-          # Monitor pipeline execution until completion
-          print("Checking for pipeline success...")
+          print("Monitor the pipeline execution until completion")
           max_attempts = 60  # Maximum attempts (5 minutes with 5-second intervals)
           attempt = 0
 
           while attempt < max_attempts:
               try:
-                  # Find the pipeline-info div
                   pipeline_info_div = self.driver.find_element(
                       By.CSS_SELECTOR,
                       'div[data-testid="pipeline-info"]'
@@ -524,7 +489,6 @@ class GitLabPipelineAutomator:
                       return False
 
               except Exception as e:
-                  # Element not found, continue monitoring
                   print(f"✗ Could not find pipeline-status-link: {e}")
                   pass
 
