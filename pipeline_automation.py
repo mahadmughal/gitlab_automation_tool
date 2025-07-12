@@ -506,48 +506,6 @@ class GitLabPipelineAutomator:
           print(f"💥 Error monitoring pipeline: {e}")
           return False
 
-    def check_pipeline_status(self):
-        """Check the overall status of the pipeline"""
-        try:
-            print("Checking overall pipeline status...")
-
-            # Look for all pipeline stage badges
-            stage_badges = self.driver.find_elements(By.CSS_SELECTOR, '[id*="ci-badge-"]')
-
-            pipeline_status = {}
-
-            for badge in stage_badges:
-                try:
-                    badge_id = badge.get_attribute('id')
-                    ci_icon = badge.find_element(By.CSS_SELECTOR, '[data-testid="ci-icon"]')
-                    icon_class = ci_icon.get_attribute('class')
-
-                    if 'success' in icon_class:
-                        status = "✅ Success"
-                    elif 'failed' in icon_class or 'error' in icon_class:
-                        status = "❌ Failed"
-                    elif 'pending' in icon_class or 'running' in icon_class:
-                        status = "⏳ Running"
-                    else:
-                        status = f"? Unknown ({icon_class})"
-
-                    pipeline_status[badge_id] = status
-
-                except Exception as e:
-                    pipeline_status[badge_id] = f"❓ Error reading status"
-
-            print("Pipeline Status Summary:")
-            print("-" * 40)
-            for stage, status in pipeline_status.items():
-                print(f"{stage}: {status}")
-            print("-" * 40)
-
-            return pipeline_status
-
-        except Exception as e:
-            print(f"Error checking pipeline status: {e}")
-            return {}
-
 
     def execute_pipeline(self):
         """Main pipeline approval orchestrator"""
