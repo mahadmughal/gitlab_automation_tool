@@ -50,7 +50,7 @@ class GitLabPipelineAutomator:
             print(f"Could not connect to existing Chrome: {e}")
             print("Please start Chrome with: /Applications/Google\\ Chrome.app/Contents/MacOS/Google\\ Chrome --remote-debugging-port=9222")
             return False
-          
+
     def reload_page(self):
         try:
             self.driver.refresh()
@@ -283,7 +283,6 @@ class GitLabPipelineAutomator:
             return False
 
     def wait_for_pipeline_page(self):
-        """Wait for the pipeline page to load after running pipeline"""
         try:
             print("Waiting for pipeline page to load...")
 
@@ -360,7 +359,7 @@ class GitLabPipelineAutomator:
                     else:
                         print("⏳ Request stage still in progress so try reload page...")
                         self.reload_page()
-                        
+
 
                 except Exception as e:
                     print(f"⚠️ Error checking request stage status: {e}")
@@ -470,7 +469,7 @@ class GitLabPipelineAutomator:
         except Exception as e:
             print(f"Error in approve pipeline stage: {e}")
             return False
-          
+
     def run_pipeline_stage(self):
         try:
               print("Looking for run pipeline badge...")
@@ -486,9 +485,9 @@ class GitLabPipelineAutomator:
         except Exception as e:
             print(f"✗ Could not click run pipeline badge: {e}")
             return False
-          
+
         time.sleep(15)
-          
+
         """Fourth step: Monitor the pipeline execution until completion"""
         try:
           print("=" * 50)
@@ -504,21 +503,25 @@ class GitLabPipelineAutomator:
               try:
                   # Find the pipeline-info div
                   pipeline_info_div = self.driver.find_element(
-                      By.CSS_SELECTOR, 
+                      By.CSS_SELECTOR,
                       'div[data-testid="pipeline-info"]'
                   )
-                
+
                   pipeline_status_link = pipeline_info_div.find_element(
                       By.CSS_SELECTOR,
                       'a[data-testid="pipeline-status-link"]'
                   )
-                  
+
                   aria_label = pipeline_status_link.get_attribute('aria-label')
-                  
+
                   if aria_label and "Status: Passed" in aria_label:
                       self.pipeline_id = pipeline_info_div.find_element(By.CSS_SELECTOR, 'a[data-testid="pipeline-path"]').get_attribute('href').split('/')[-1]
-                      print("✅ Pipeline execution PASSED!")
-                      return True 
+                      print(f"Pipeline execution passed with pipeline_id: {self.pipeline_id}")
+                      return True
+
+                  if aria_label and "Status: Failed" in aria_label:
+                      print("Pipeline execution failed")
+                      return False
 
               except Exception as e:
                   # Element not found, continue monitoring
@@ -526,7 +529,7 @@ class GitLabPipelineAutomator:
                   pass
 
               attempt += 1
-              
+
               if attempt < max_attempts:
                   self.reload_page()
                   print(f"⏳ Checking... (attempt {attempt}/{max_attempts})")
@@ -585,9 +588,6 @@ class GitLabPipelineAutomator:
     def execute_pipeline(self):
         """Main pipeline approval orchestrator"""
         try:
-            print("🚀 Starting Pipeline Approval Process")
-            print("=" * 60)
-
             # Step 1: Wait for pipeline page to load
             if not self.wait_for_pipeline_page():
                 print("❌ Failed to load pipeline page")
@@ -654,18 +654,14 @@ class GitLabPipelineAutomator:
 
             # Process CI variables with provided parameters
             if not self.process_ci_variables(ticket_description, script_content, ejar_service):
+                print("Error processing CI variables")
                 return False
 
             # Use the refactored approval process
             if not self.execute_pipeline():
-                print("Checking final pipeline status...")
-                self.check_pipeline_status()
+                print("Error executing pipeline")
                 return False
 
-            # Final status check
-            final_status = self.check_pipeline_status()
-
-            print("🎉 Successfully completed automation with refactored approval process!")
             return True
 
         except Exception as e:
@@ -765,15 +761,10 @@ if __name__ == "__main__":
         )
 
         if success:
-            print("\n✅ Automation completed successfully!")
-            print(f"Pipeline ID: {self.pipeline_id}")
+            sys.exit(0)
         else:
-            print("\n❌ Automation failed!")
             sys.exit(1)
 
-    except KeyboardInterrupt:
-        print("\n⚠️ Automation interrupted by user")
-        sys.exit(1)
     except Exception as e:
         print(f"\n💥 Unexpected error: {e}")
         sys.exit(1)
