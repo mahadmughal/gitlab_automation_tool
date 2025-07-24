@@ -1,0 +1,26 @@
+{
+  "name": "gitlab-pipeline-automation",
+  "version": "1.0.0",
+  "description": "GitLab Pipeline Automation Tool - JavaScript port of Python script",
+  "main": "pipeline_automation.js",
+  "scripts": {
+    "start": "node pipeline_automation.js",
+    "test": "echo \"Error: no test specified\" && exit 1"
+  },
+  "keywords": [
+    "gitlab",
+    "pipeline",
+    "automation",
+    "selenium",
+    "webdriver"
+  ],
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "selenium-webdriver": "^4.15.0",
+    "commander": "^11.1.0"
+  },
+  "engines": {
+    "node": ">=14.0.0"
+  }
+}
