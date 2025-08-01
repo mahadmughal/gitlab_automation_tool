@@ -142,7 +142,8 @@ class GitLabPipelineAutomator {
             return true;
         } catch (error) {
             console.log(`Error selecting branch: ${error}`);
-            return false;
+            console.log("Retrying...");
+            return await this.selectBranch(branchName);
         }
     }
 
@@ -312,6 +313,10 @@ class GitLabPipelineAutomator {
                 }
             }
 
+            const currentUrl = await this.driver.getCurrentUrl()
+            console.log(`Current URL: ${currentUrl}`);
+            this.pipelineId = currentUrl.split('/').pop();
+
             console.log("Monitoring request stage completion...");
             const maxAttempts = 10;
             let attempt = 0;
@@ -462,20 +467,14 @@ class GitLabPipelineAutomator {
 
             while (attempt < maxAttempts) {
                 try {
-                    const pipelineInfoDiv = await this.driver.findElement(
-                        By.css('div[data-testid="pipeline-info"]')
+
+                    const ci_icon = await this.driver.findElement(
+                      By.css('.build-job a[data-testid="ci-icon"]')
                     );
 
-                    const pipelineStatusLink = await pipelineInfoDiv.findElement(
-                        By.css('a[data-testid="pipeline-status-link"]')
-                    );
-
-                    const ariaLabel = await pipelineStatusLink.getAttribute('aria-label');
+                    const ariaLabel = await ci_icon.getAttribute('aria-label');
 
                     if (ariaLabel && ariaLabel.includes("Status: Passed")) {
-                        const pipelinePathLink = await pipelineInfoDiv.findElement(By.css('a[data-testid="pipeline-path"]'));
-                        const href = await pipelinePathLink.getAttribute('href');
-                        this.pipelineId = href.split('/').pop();
                         console.log(`Pipeline execution passed with pipeline_id: ${this.pipelineId}`);
                         return true;
                     }
