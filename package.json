@@ -17,8 +17,12 @@
   "author": "",
   "license": "MIT",
   "dependencies": {
-    "selenium-webdriver": "^4.15.0",
-    "commander": "^11.1.0"
+    "commander": "^11.1.0",
+    "dotenv": "^17.2.1",
+    "fs": "^0.0.1-security",
+    "path": "^0.12.7",
+    "playwright": "^1.54.2",
+    "selenium-webdriver": "^4.15.0"
   },
   "engines": {
     "node": ">=14.0.0"
