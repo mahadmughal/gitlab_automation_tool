@@ -42,6 +42,22 @@ class GitLabPipelineAutomator {
     }
   }
 
+  async retry(fn, maxAttempts = 3, delayMs = 5000) {
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+      try {
+        return await fn();
+      } catch (err) {
+        console.log(`⚠️ Attempt ${attempt} failed: ${err.message || err}`);
+        if (attempt < maxAttempts) {
+          console.log(`🔄 Retrying in ${delayMs / 1000}s...`);
+          await this.page.waitForTimeout(delayMs);
+        } else {
+          throw err; // rethrow after max attempts
+        }
+      }
+    }
+  }  
+
   async navigateToGitlabPipeline() {
     const targetUrl = "https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new";
     await this.page.goto(targetUrl, { waitUntil: "domcontentloaded" });
@@ -80,52 +96,53 @@ class GitLabPipelineAutomator {
   }
 
   async processCiVariables(ticketDescription, scriptContent, ejarService) {
-    // 🔍 if service is sec/security-deposit, override ticket description
-    if (
-      ejarService.toLowerCase().includes("sec") ||
-      ejarService.toLowerCase().includes("security-deposit")
-    ) {
-      const extracted = this.fetchTicketDescriptionFromScript(scriptContent);
-      if (extracted) {
-        console.log(`🔄 Replacing ticket description '${ticketDescription}' with extracted '${extracted}'`);
-        ticketDescription = extracted;
-      } else {
-        console.log("⚠️ Could not extract task name, using provided ticket description");
+    return this.retry(async () => {
+      // 🔍 if service is sec/security-deposit, override ticket description
+      if (
+        ejarService.toLowerCase().includes("sec") ||
+        ejarService.toLowerCase().includes("security-deposit")
+      ) {
+        const extracted = this.fetchTicketDescriptionFromScript(scriptContent);
+        if (extracted) {
+          console.log(`🔄 Replacing ticket description '${ticketDescription}' with extracted '${extracted}'`);
+          ticketDescription = extracted;
+        }
       }
-    }
-
-    await this.page.waitForSelector('div[data-testid="ci-variable-row-container"]', { timeout: 15000 });
-    const containers = await this.page.$$('div[data-testid="ci-variable-row-container"]');
-    if (!containers.length) throw new Error("No CI variable containers found");
-
-    // 1. Ticket description
-    const textarea1 = await containers[0].$('[data-testid="pipeline-form-ci-variable-value-field"]');
-    await textarea1.fill(ticketDescription);
-
-    // 2. Service dropdown
-    const dropdownBtn = await containers[1].$('[data-testid="pipeline-form-ci-variable-value-dropdown"]');
-    await dropdownBtn.click();
-    await this.page.waitForSelector('#base-dropdown-59 #listbox-58');
-    const options = await this.page.$$('#base-dropdown-59 #listbox-58 li');
-    let matched = false;
-    for (const opt of options) {
-      const text = await opt.getAttribute('data-testid');
-      if (text?.toLowerCase().includes(ejarService.toLowerCase())) {
-        await opt.click();
-        matched = true;
-        break;
+  
+      await this.page.waitForSelector('div[data-testid="ci-variable-row-container"]', { timeout: 15000 });
+      const containers = await this.page.$$('div[data-testid="ci-variable-row-container"]');
+      if (!containers.length) throw new Error("No CI variable containers found");
+  
+      // 1. Ticket description
+      const textarea1 = await containers[0].$('[data-testid="pipeline-form-ci-variable-value-field"]');
+      await textarea1.fill(ticketDescription);
+  
+      // 2. Service dropdown
+      const dropdownBtn = await containers[1].$('[data-testid="pipeline-form-ci-variable-value-dropdown"]');
+      await dropdownBtn.click();
+      await this.page.waitForSelector('#base-dropdown-59 #listbox-58');
+      const options = await this.page.$$('#base-dropdown-59 #listbox-58 li');
+      let matched = false;
+      for (const opt of options) {
+        const text = await opt.getAttribute('data-testid');
+        if (text?.toLowerCase().includes(ejarService.toLowerCase())) {
+          await opt.click();
+          matched = true;
+          break;
+        }
       }
-    }
-    if (!matched) await options[4].click(); // fallback
-
-    // 3. Script content
-    const scriptArea = await containers[2].$('[data-testid="pipeline-form-ci-variable-value-field"]');
-    await scriptArea.fill(scriptContent);
-
-    // Run pipeline
-    await this.page.click('[data-testid="run-pipeline-button"]');
-    console.log("✅ CI variables set and pipeline started");
+      if (!matched) await options[4].click(); // fallback
+  
+      // 3. Script content
+      const scriptArea = await containers[2].$('[data-testid="pipeline-form-ci-variable-value-field"]');
+      await scriptArea.fill(scriptContent);
+  
+      // Run pipeline
+      await this.page.click('[data-testid="run-pipeline-button"]');
+      console.log("✅ CI variables set and pipeline started");
+    }, 3, 5000); // retry up to 3 times
   }
+  
 
   async waitForPipelinePage() {
     await this.page.waitForURL(/\/pipelines\/\d+$/, { timeout: 30000 });
@@ -134,59 +151,53 @@ class GitLabPipelineAutomator {
   }
 
   async approvePipelineStage() {
-    console.log("⏳ Waiting for approve stage...");
-
-    const maxAttempts = 20;
-
-    for (let attempt = 0; attempt < maxAttempts; attempt++) {
-      try {
-        // Wait for approve badge
-        const badge = this.page.locator('#ci-badge-approve_prod');
-        await badge.waitFor({ timeout: 15000 });
-
-        const ciIcon = badge.locator('[data-testid="ci-icon"]');
-        const iconClass = await ciIcon.getAttribute('class');
-
-        const neutral = iconClass?.includes('badge-neutral');
-        const success = iconClass?.includes('badge-success');
-
-        if (success) {
-          console.log("✅ Approve stage already completed");
-          return true;
-        }
-
-        if (neutral) {
-          console.log("🔘 Approve button available, clicking...");
-          const approveButton = badge.locator('[data-testid="ci-action-button"]');
-
-          await approveButton.scrollIntoViewIfNeeded();
-          await approveButton.click();
-          await this.page.waitForTimeout(2000);
-
-          // Re-check status
-          const updatedClass = await ciIcon.getAttribute('class');
-          if (!updatedClass?.includes('badge-neutral')) {
-            console.log("✅ Successfully approved pipeline");
+    return this.retry(async () => {
+      console.log("⏳ Waiting for approve stage...");
+  
+      const maxAttempts = 20;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const badge = this.page.locator('#ci-badge-approve_prod');
+          await badge.waitFor({ timeout: 15000 });
+  
+          const ciIcon = badge.locator('[data-testid="ci-icon"]');
+          const iconClass = await ciIcon.getAttribute('class');
+  
+          const neutral = iconClass?.includes('badge-neutral');
+          const success = iconClass?.includes('badge-success');
+  
+          if (success) {
+            console.log("✅ Approve stage already completed");
             return true;
           }
-
-          console.log("⚠️ Approve still neutral, will retry...");
-        } else {
-          console.log("⏳ Approve stage in progress...");
+  
+          if (neutral) {
+            console.log("🔘 Approve button available, clicking...");
+            const approveButton = badge.locator('[data-testid="ci-action-button"]');
+            await approveButton.scrollIntoViewIfNeeded();
+            await approveButton.click();
+            await this.page.waitForTimeout(2000);
+  
+            const updatedClass = await ciIcon.getAttribute('class');
+            if (!updatedClass?.includes('badge-neutral')) {
+              console.log("✅ Successfully approved pipeline");
+              return true;
+            }
+          } else {
+            console.log("⏳ Approve stage in progress...");
+          }
+        } catch (err) {
+          console.log(`⚠️ Error while approving: ${err}`);
         }
-      } catch (err) {
-        console.log(`⚠️ Error while approving: ${err}`);
+  
+        await this.page.reload();
+        console.log(`Retrying... (attempt ${attempt + 1}/${maxAttempts})`);
+        await this.page.waitForTimeout(5000);
       }
-
-      // Retry loop
-      await this.page.reload();
-      console.log(`Retrying... (attempt ${attempt + 1}/${maxAttempts})`);
-      await this.page.waitForTimeout(5000);
-    }
-
-    console.log("❌ Approve stage did not complete in time");
-    return false;
-  }
+  
+      throw new Error("❌ Approve stage did not complete in time");
+    }, 2, 10000); // retry the whole approval process twice if it crashes
+  }  
 
   async close() {
     if (this.browser) {
