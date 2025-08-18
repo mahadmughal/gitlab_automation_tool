@@ -16,10 +16,7 @@ class GitLabPipelineAutomator {
     try {
       this.browser = await chromium.connectOverCDP('http://127.0.0.1:9222');
       const contexts = this.browser.contexts();
-  
-      // ✅ Always create a new tab
       this.page = await contexts[0].newPage();
-  
       console.log("✅ Connected to existing Chrome session (new tab opened)");
       return true;
     } catch (err) {
@@ -28,7 +25,6 @@ class GitLabPipelineAutomator {
       return false;
     }
   }
-  
 
   async connectToFirefox() {
     try {
@@ -52,11 +48,11 @@ class GitLabPipelineAutomator {
           console.log(`🔄 Retrying in ${delayMs / 1000}s...`);
           await this.page.waitForTimeout(delayMs);
         } else {
-          throw err; // rethrow after max attempts
+          throw err;
         }
       }
     }
-  }  
+  }
 
   async navigateToGitlabPipeline() {
     const targetUrl = "https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new";
@@ -83,7 +79,6 @@ class GitLabPipelineAutomator {
     return await fs.readFile(scriptPath, 'utf8');
   }
 
-  // helper to extract task_name from ruby script
   fetchTicketDescriptionFromScript(scriptContent) {
     const pattern = /task\s+([a-zA-Z0-9_]+)\s*:\s*:environment\s+do/;
     const match = scriptContent.match(pattern);
@@ -97,7 +92,6 @@ class GitLabPipelineAutomator {
 
   async processCiVariables(ticketDescription, scriptContent, ejarService) {
     return this.retry(async () => {
-      // 🔍 if service is sec/security-deposit, override ticket description
       if (
         ejarService.toLowerCase().includes("sec") ||
         ejarService.toLowerCase().includes("security-deposit")
@@ -108,15 +102,15 @@ class GitLabPipelineAutomator {
           ticketDescription = extracted;
         }
       }
-  
+
       await this.page.waitForSelector('div[data-testid="ci-variable-row-container"]', { timeout: 15000 });
       const containers = await this.page.$$('div[data-testid="ci-variable-row-container"]');
       if (!containers.length) throw new Error("No CI variable containers found");
-  
+
       // 1. Ticket description
       const textarea1 = await containers[0].$('[data-testid="pipeline-form-ci-variable-value-field"]');
       await textarea1.fill(ticketDescription);
-  
+
       // 2. Service dropdown
       const dropdownBtn = await containers[1].$('[data-testid="pipeline-form-ci-variable-value-dropdown"]');
       await dropdownBtn.click();
@@ -131,18 +125,16 @@ class GitLabPipelineAutomator {
           break;
         }
       }
-      if (!matched) await options[4].click(); // fallback
-  
+      if (!matched) await options[4].click();
+
       // 3. Script content
       const scriptArea = await containers[2].$('[data-testid="pipeline-form-ci-variable-value-field"]');
       await scriptArea.fill(scriptContent);
-  
-      // Run pipeline
+
       await this.page.click('[data-testid="run-pipeline-button"]');
       console.log("✅ CI variables set and pipeline started");
-    }, 3, 5000); // retry up to 3 times
+    }, 3, 5000);
   }
-  
 
   async waitForPipelinePage() {
     await this.page.waitForURL(/\/pipelines\/\d+$/, { timeout: 30000 });
@@ -153,31 +145,30 @@ class GitLabPipelineAutomator {
   async approvePipelineStage() {
     return this.retry(async () => {
       console.log("⏳ Waiting for approve stage...");
-  
       const maxAttempts = 20;
       for (let attempt = 0; attempt < maxAttempts; attempt++) {
         try {
           const badge = this.page.locator('#ci-badge-approve_prod');
           await badge.waitFor({ timeout: 15000 });
-  
+
           const ciIcon = badge.locator('[data-testid="ci-icon"]');
           const iconClass = await ciIcon.getAttribute('class');
-  
+
           const neutral = iconClass?.includes('badge-neutral');
           const success = iconClass?.includes('badge-success');
-  
+
           if (success) {
             console.log("✅ Approve stage already completed");
             return true;
           }
-  
+
           if (neutral) {
             console.log("🔘 Approve button available, clicking...");
             const approveButton = badge.locator('[data-testid="ci-action-button"]');
             await approveButton.scrollIntoViewIfNeeded();
             await approveButton.click();
             await this.page.waitForTimeout(2000);
-  
+
             const updatedClass = await ciIcon.getAttribute('class');
             if (!updatedClass?.includes('badge-neutral')) {
               console.log("✅ Successfully approved pipeline");
@@ -189,15 +180,64 @@ class GitLabPipelineAutomator {
         } catch (err) {
           console.log(`⚠️ Error while approving: ${err}`);
         }
-  
+
         await this.page.reload();
         console.log(`Retrying... (attempt ${attempt + 1}/${maxAttempts})`);
         await this.page.waitForTimeout(5000);
       }
-  
       throw new Error("❌ Approve stage did not complete in time");
-    }, 2, 10000); // retry the whole approval process twice if it crashes
-  }  
+    }, 2, 10000);
+  }
+
+  async runPipelineStage() {
+    try {
+      console.log("Looking for run pipeline badge...");
+      const badge = this.page.locator('#ci-badge-runscript_prod');
+      await badge.waitFor({ timeout: 10000 });
+      console.log("✓ Found run pipeline badge");
+
+      await badge.click();
+      console.log("✓ Redirected to pipeline execution page");
+    } catch (err) {
+      console.log(`✗ Could not click run pipeline badge: ${err}`);
+      return false;
+    }
+
+    await this.page.waitForTimeout(15000);
+
+    try {
+      console.log("Monitor the pipeline execution until completion");
+      const maxAttempts = 60;
+      for (let attempt = 0; attempt < maxAttempts; attempt++) {
+        try {
+          const ciIcon = this.page.locator('.build-job a[data-testid="ci-icon"]');
+          await ciIcon.waitFor({ timeout: 5000 });
+
+          const ariaLabel = await ciIcon.getAttribute('aria-label');
+          if (ariaLabel?.includes("Status: Passed")) {
+            console.log(`✅ Pipeline execution passed with pipeline_id: ${this.pipelineId}`);
+            return true;
+          }
+          if (ariaLabel?.includes("Status: Failed")) {
+            console.log("❌ Pipeline execution failed");
+            return false;
+          }
+        } catch (err) {
+          console.log(`⚠️ Could not find pipeline-status-link: ${err}`);
+        }
+
+        console.log(`⏳ Checking... (attempt ${attempt + 1}/${maxAttempts})`);
+        await this.page.reload();
+        await this.page.waitForTimeout(10000);
+      }
+
+      console.log("⚠️ Pipeline monitoring timed out");
+      return false;
+    } catch (err) {
+      console.log(`💥 Error monitoring pipeline: ${err}`);
+      return false;
+    }
+  }
 
   async close() {
     if (this.browser) {
@@ -237,7 +277,9 @@ function parseArguments() {
     await automator.approvePipelineStage();
 
     console.log("🎉 Pipeline approved successfully");
-    process.exit(0);
+
+    // 👉 NEW STEP: execute pipeline page + monitor
+    await automator.runPipelineStage();
   } catch (err) {
     console.error("💥 Automation failed:", err);
     process.exit(1);
