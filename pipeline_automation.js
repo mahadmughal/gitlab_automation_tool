@@ -91,49 +91,47 @@ class GitLabPipelineAutomator {
   }
 
   async processCiVariables(ticketDescription, scriptContent, ejarService) {
-    return this.retry(async () => {
-      if (
-        ejarService.toLowerCase().includes("sec") ||
-        ejarService.toLowerCase().includes("security-deposit")
-      ) {
-        const extracted = this.fetchTicketDescriptionFromScript(scriptContent);
-        if (extracted) {
-          console.log(`🔄 Replacing ticket description '${ticketDescription}' with extracted '${extracted}'`);
-          ticketDescription = extracted;
-        }
+    if (
+      ejarService.toLowerCase().includes("sec") ||
+      ejarService.toLowerCase().includes("security-deposit")
+    ) {
+      const extracted = this.fetchTicketDescriptionFromScript(scriptContent);
+      if (extracted) {
+        console.log(`🔄 Replacing ticket description '${ticketDescription}' with extracted '${extracted}'`);
+        ticketDescription = extracted;
       }
+    }
 
-      await this.page.waitForSelector('div[data-testid="ci-variable-row-container"]', { timeout: 15000 });
-      const containers = await this.page.$$('div[data-testid="ci-variable-row-container"]');
-      if (!containers.length) throw new Error("No CI variable containers found");
+    await this.page.waitForSelector('div[data-testid="ci-variable-row-container"]', { timeout: 15000 });
+    const containers = await this.page.$$('div[data-testid="ci-variable-row-container"]');
+    if (!containers.length) throw new Error("No CI variable containers found");
 
-      // 1. Ticket description
-      const textarea1 = await containers[0].$('[data-testid="pipeline-form-ci-variable-value-field"]');
-      await textarea1.fill(ticketDescription);
+    // 1. Ticket description
+    const textarea1 = await containers[0].$('[data-testid="pipeline-form-ci-variable-value-field"]');
+    await textarea1.fill(ticketDescription);
 
-      // 2. Service dropdown
-      const dropdownBtn = await containers[1].$('[data-testid="pipeline-form-ci-variable-value-dropdown"]');
-      await dropdownBtn.click();
-      await this.page.waitForSelector('#base-dropdown-59 #listbox-58');
-      const options = await this.page.$$('#base-dropdown-59 #listbox-58 li');
-      let matched = false;
-      for (const opt of options) {
-        const text = await opt.getAttribute('data-testid');
-        if (text?.toLowerCase().includes(ejarService.toLowerCase())) {
-          await opt.click();
-          matched = true;
-          break;
-        }
+    // 2. Service dropdown
+    const dropdownBtn = await containers[1].$('[data-testid="pipeline-form-ci-variable-value-dropdown"]');
+    await dropdownBtn.click();
+    await this.page.waitForSelector('#base-dropdown-59 #listbox-58');
+    const options = await this.page.$$('#base-dropdown-59 #listbox-58 li');
+    let matched = false;
+    for (const opt of options) {
+      const text = await opt.getAttribute('data-testid');
+      if (text?.toLowerCase().includes(ejarService.toLowerCase())) {
+        await opt.click();
+        matched = true;
+        break;
       }
-      if (!matched) await options[4].click();
+    }
+    if (!matched) await options[4].click();
 
-      // 3. Script content
-      const scriptArea = await containers[2].$('[data-testid="pipeline-form-ci-variable-value-field"]');
-      await scriptArea.fill(scriptContent);
+    // 3. Script content
+    const scriptArea = await containers[2].$('[data-testid="pipeline-form-ci-variable-value-field"]');
+    await scriptArea.fill(scriptContent);
 
-      await this.page.click('[data-testid="run-pipeline-button"]');
-      console.log("✅ CI variables set and pipeline started");
-    }, 3, 5000);
+    await this.page.click('[data-testid="run-pipeline-button"]');
+    console.log("✅ CI variables set and pipeline started");
   }
 
   async waitForPipelinePage() {
@@ -266,11 +264,14 @@ function parseArguments() {
       await automator.connectToFirefox();
     }
 
-    await automator.navigateToGitlabPipeline();
-    await automator.selectBranch(args.branch);
-    const script = await automator.readScript(args.script);
-    await automator.processCiVariables(args.ticket, script, args.ejarService);
-    await automator.waitForPipelinePage();
+    // Wrap the whole core flow in retry
+    await automator.retry(async () => {
+      await automator.navigateToGitlabPipeline();
+      await automator.selectBranch(args.branch);
+      const script = await automator.readScript(args.script);
+      await automator.processCiVariables(args.ticket, script, args.ejarService);
+      await automator.waitForPipelinePage();
+    }, 3, 1000);
 
     console.log("✅ Pipeline page loaded");
     console.log("⏳ Waiting for approve stage...");
@@ -278,7 +279,6 @@ function parseArguments() {
 
     console.log("🎉 Pipeline approved successfully");
 
-    // 👉 NEW STEP: execute pipeline page + monitor
     await automator.runPipelineStage();
   } catch (err) {
     console.error("💥 Automation failed:", err);
