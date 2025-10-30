@@ -13,7 +13,7 @@ class GitlabPipelineFetcher:
 
     def __init__(self):
         self.gl = gitlab.Gitlab(
-            url=os.getenv('GITLAB_BASE_URL'),
+            url = os.getenv('GITLAB_BASE_URL'),
             private_token=os.getenv('GITLAB_ACCESS_TOKEN')
         )
         self.gl.auth()
@@ -31,6 +31,8 @@ class GitlabPipelineFetcher:
             print(f"Ref: {pipeline.ref}")
             print(f"Created: {pipeline.created_at}")
             print(f"User: {pipeline.user['name'] if pipeline.user else 'N/A'}")
+            
+            print(f"Gitlab access token: {os.getenv('GITLAB_ACCESS_TOKEN')}")
 
             # Get and display jobs
             jobs = pipeline.jobs.list(get_all=True)
