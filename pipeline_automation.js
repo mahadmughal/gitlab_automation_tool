@@ -70,7 +70,7 @@ class GitLabPipelineAutomator {
     await this.page.waitForSelector("#base-dropdown-38 ul");
 
     const liElements = await this.page.$$("#base-dropdown-38 ul li");
-    let index = { development: 4, production: 5, test: 6, uat: 7 }[
+    let index = { development: 5, production: 6, test: 7, uat: 1 }[
       branchName.toLowerCase()
     ];
     if (index === undefined) throw new Error(`Invalid branch: ${branchName}`);
