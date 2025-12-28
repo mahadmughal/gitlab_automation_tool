@@ -66,11 +66,11 @@ class GitLabPipelineAutomator {
   async selectBranch(branchName = "production") {
     console.log(`Selecting branch: ${branchName}`);
     await this.page.reload();
-    await this.page.click(".ref-selector #dropdown-toggle-btn-36");
+    await this.page.click(".ref-selector #dropdown-toggle-btn-37");
     await this.page.waitForSelector("#base-dropdown-38 ul");
 
     const liElements = await this.page.$$("#base-dropdown-38 ul li");
-    let index = { development: 5, production: 6, test: 7, uat: 1 }[
+    let index = { development: 5, production: 7, test: 8, uat: 1 }[
       branchName.toLowerCase()
     ];
     if (index === undefined) throw new Error(`Invalid branch: ${branchName}`);
@@ -129,8 +129,8 @@ class GitLabPipelineAutomator {
       '[data-testid="pipeline-form-ci-variable-value-dropdown"]'
     );
     await dropdownBtn.click();
-    await this.page.waitForSelector("#base-dropdown-59 #listbox-58");
-    const options = await this.page.$$("#base-dropdown-59 #listbox-58 li");
+    await this.page.waitForSelector("#base-dropdown-54 #listbox-52");
+    const options = await this.page.$$("#base-dropdown-54 #listbox-52 li");
     let matched = false;
     for (const opt of options) {
       const text = await opt.getAttribute("data-testid");
