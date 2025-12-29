@@ -2,6 +2,7 @@ import time
 import argparse
 import sys
 import re
+import os
 from selenium import webdriver
 from selenium.webdriver.common.by import By
 from selenium.webdriver.support.ui import WebDriverWait
@@ -75,7 +76,8 @@ class GitLabPipelineAutomator:
 
     def navigate_to_gitlab_pipeline(self):
         """Navigate to the GitLab pipeline page"""
-        target_url = "https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new"
+        base_url = os.getenv('GITLAB_BASE_URL')
+        target_url = f"{base_url}/ejar3/devs/ejar3-run-script-tool/-/pipelines/new"
 
         try:
             current_url = self.driver.current_url
@@ -99,8 +101,10 @@ class GitLabPipelineAutomator:
         print(f"Attempting to select branch: {branch_name}")
 
         try:
+            base_url = os.getenv('GITLAB_BASE_URL')
+            pipeline_url = f"{base_url}/ejar3/devs/ejar3-run-script-tool/-/pipelines/new"
 
-            self.driver.get('https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new')
+            self.driver.get(pipeline_url)
             self.reload_page()
             # Wait for the page to fully load by checking the presence of the fieldset
             self.wait.until(
@@ -109,7 +113,7 @@ class GitLabPipelineAutomator:
 
             # Navigate directly to pipeline page (user already logged in)
             print("Navigating to GitLab pipeline page...")
-            self.driver.get('https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new')
+            self.driver.get(pipeline_url)
 
             # Wait for the page to fully load by checking the presence of the fieldset
             ref_selector_div = self.wait.until(
@@ -286,10 +290,13 @@ class GitLabPipelineAutomator:
         try:
             print("Waiting for pipeline page to load...")
 
+            base_url = os.getenv('GITLAB_BASE_URL')
+            pipeline_path_prefix = f"{base_url}/ejar3/devs/ejar3-run-script-tool/-/pipelines/"
+
             def pipeline_page_loaded(driver):
                 current_url = driver.current_url
                 print(f"Current URL: {current_url}")
-                return current_url.startswith('https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/')
+                return current_url.startswith(pipeline_path_prefix)
 
             # Wait up to 30 seconds for page navigation
             try:

@@ -4,6 +4,7 @@ import path from "path";
 import { chromium, firefox } from "playwright";
 
 const SCRIPTS_PATH = "/Users/mahadasif/Desktop/wareef-scripts";
+const GITLAB_BASE_URL = "https://devops.nhc.sa";
 
 class GitLabPipelineAutomator {
   constructor() {
@@ -57,8 +58,7 @@ class GitLabPipelineAutomator {
   }
 
   async navigateToGitlabPipeline() {
-    const targetUrl =
-      "https://devops.housing.sa:8083/ejar3/devs/ejar3-run-script-tool/-/pipelines/new";
+    const targetUrl = `${GITLAB_BASE_URL}/ejar3/devs/ejar3-run-script-tool/-/pipelines/new`;
     await this.page.goto(targetUrl, { waitUntil: "domcontentloaded" });
     console.log("✅ GitLab pipeline page opened");
   }
